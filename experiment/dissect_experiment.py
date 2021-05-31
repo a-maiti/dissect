@@ -32,15 +32,18 @@ def parseargs():
     aa('--miniou', type=float, default=0.04)
     aa('--thumbsize', type=int, default=100)
     aa('--gpu', type=int, default=0)
+    aa('--data_split', type=str, required=True)
+    aa('--layername', type=str, required=True)
     args = parser.parse_args()
     return args
 
 def main():
     args = parseargs()
     os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu) 
-    layername = "encoder.layer4.0.conv2"
-    dataset = "v31.1"
-    resdir = '/scratch/users/abhishekm/vwm-dissect/results/%s-%s-%s-%s-%s-finetuned' % (args.model, args.dataset, args.seg, layername, dataset)
+    # layername = "encoder.layer4.0.conv2"
+    layername = args.layername 
+    # dataset_split = "v32.1"
+    resdir = '/scratch/users/abhishekm/vwm-dissect/results/%s-%s-%s-%s-%s-finetuned' % (args.model, args.dataset, args.seg, layername, args.data_split)
     if args.layer is not None:
         resdir += '-' + args.layer
     if args.quantile != 0.005:
