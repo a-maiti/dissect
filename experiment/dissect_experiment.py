@@ -1,33 +1,46 @@
 # New-style dissection experiment code.
+import sys 
+sys.path.insert(0, '../')
+sys.path.insert(0, '/home/users/abhishekm/vwm')
 import torch, argparse, os, shutil, inspect, json, numpy, random
 from collections import defaultdict
 from netdissect import pbar, nethook, renormalize, pidfile, zdataset
 from netdissect import upsample, tally, imgviz, imgsave, bargraph
-from . import setting
+from model.baseline import Baseline
+import setting
 import netdissect
+from cfg.cfg_parser import cfg_parser
+from trainer import trainer_factory as trainer
+
+os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+os.environ['TORCH_HOME'] = "/scratch/users/abhishekm/torch_cache"
 torch.backends.cudnn.benchmark = True
 
 def parseargs():
     parser = argparse.ArgumentParser()
     def aa(*args, **kwargs):
         parser.add_argument(*args, **kwargs)
-    aa('--model', choices=['alexnet', 'vgg16', 'resnet152', 'progan'],
-            default='alexnet')
+    aa('--model', choices=['alexnet', 'vgg16', 'resnet152', 'progan', 'real-real'],
+            default='real-real')
     aa('--dataset', choices=['places', 'church', 'kitchen', 'livingroom',
-                             'bedroom'],
-            default='places')
+                             'bedroom', 'niloufer'],
+            default='niloufer')
     aa('--seg', choices=['net', 'netp', 'netq', 'netpq', 'netpqc', 'netpqxc'],
             default='netpqc')
     aa('--layer', default=None)
     aa('--quantile', type=float, default=0.01)
     aa('--miniou', type=float, default=0.04)
     aa('--thumbsize', type=int, default=100)
+    aa('--gpu', type=int, default=0)
     args = parser.parse_args()
     return args
 
 def main():
     args = parseargs()
-    resdir = 'results/%s-%s-%s' % (args.model, args.dataset, args.seg)
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(args.gpu) 
+    layername = "encoder.layer4.0.conv2"
+    dataset = "v31.1"
+    resdir = '/scratch/users/abhishekm/vwm-dissect/results/%s-%s-%s-%s-%s-finetuned' % (args.model, args.dataset, args.seg, layername, dataset)
     if args.layer is not None:
         resdir += '-' + args.layer
     if args.quantile != 0.005:
@@ -36,12 +49,17 @@ def main():
         resdir += ('-t%d' % (args.thumbsize))
     resfile = pidfile.exclusive_dirfn(resdir)
 
-    model = load_model(args)
-    layername = instrumented_layername(args)
+    # model = load_model(args)
+    cfg = cfg_parser("/home/users/abhishekm/vwm/cfg/experiments/abm_dissect.json")
+    _trainer = trainer.factory.create(cfg["model_cfg"].trainer_key, **cfg)
+    model = _trainer.model 
+    model = nethook.InstrumentedModel(model).cuda().eval()
+    # dataloader = _trainer.data_loaders["val"]["real_baseline"]
+    # layername = "encoder.layer4.1.conv2" # instrumented_layername(args)
     model.retain_layer(layername)
-    dataset = load_dataset(args, model=model.model)
-    upfn = make_upfn(args, dataset, model, layername)
-    sample_size = len(dataset)
+    dataset = _trainer.datasets['val'][0][0] # load_dataset(args, model=model.model)
+    upfn = make_upfn(args, dataset , model, layername)
+    sample_size = None # len(dataset)
     is_generator = (args.model == 'progan')
     percent_level = 1.0 - args.quantile
     iou_threshold = args.miniou
@@ -59,7 +77,7 @@ def main():
     rq = tally.tally_quantile(compute_samples, dataset,
                               sample_size=sample_size,
                               r=8192,
-                              num_workers=100,
+                              num_workers=10,
                               pin_memory=True,
                               cachefile=resfile('rq.npz'))
 
@@ -78,7 +96,7 @@ def main():
 
     # Visualize top-activating patches of top-activatin images.
     pbar.descnext('unit_images')
-    image_size, image_source = None, None
+    image_size, image_source = (224, 224), None
     if is_generator:
         image_size = model(dataset[0][0].cuda()[None,...]).shape[2:]
     else:
@@ -165,15 +183,15 @@ def make_upfn(args, dataset, model, layername):
                 image_size=out.shape[2:])
         return upfn
     else:
-        # Probe the data shape
+        # Probe the data shape  
         _ = model(dataset[0][0][None,...].cuda())
         data_shape = model.retained_layer(layername).shape[2:]
         pbar.print('upsampling from data_shape', tuple(data_shape))
+
     upfn = upsample.upsampler(
             (56, 56),
             data_shape=data_shape,
-            source=dataset,
-            convolutions=convs)
+            image_size=(224, 224))
     return upfn
 
 def instrumented_layername(args):
@@ -191,6 +209,7 @@ def instrumented_layername(args):
         return '7'
     elif args.model == 'progan':
         return 'layer4'
+
 
 def load_model(args):
     '''Loads one of the benchmark classifiers or generators.'''
@@ -211,6 +230,7 @@ def load_dataset(args, model=None):
         crop_size = 227 if args.model == 'alexnet' else 224
         return setting.load_dataset(args.dataset, split='val', full=True,
                 crop_size=crop_size, download=True)
+
     assert False
 
 def graph_conceptcatlist(conceptcatlist, **kwargs):

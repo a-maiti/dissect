@@ -1,11 +1,11 @@
 import torch, torchvision, os, collections
 from netdissect import parallelfolder, zdataset, renormalize, segmenter
-from . import oldalexnet, oldvgg16, oldresnet152
+import oldalexnet, oldvgg16, oldresnet152
 
 def load_proggan(domain):
     # Automatically download and cache progressive GAN model
     # (From Karras, converted from Tensorflow to Pytorch.)
-    from . import proggan
+    import proggan
     weights_filename = dict(
         bedroom='proggan_bedroom-d8a89ff1.pth',
         church='proggan_churchoutdoor-7e701dd5.pth',

@@ -55,7 +55,10 @@ def tally_topk(compute, dataset, sample_size=None, batch_size=10, k=100,
     if cached_state is not None:
         return runningstats.RunningTopK(state=cached_state)
     rtk = runningstats.RunningTopK(k=k)
-    loader = make_loader(dataset, sample_size, batch_size, **kwargs)
+    if 'loader' in kwargs:
+        loader = kwargs['loader']
+    else:
+        loader = make_loader(dataset, sample_size, batch_size, **kwargs)
     for batch in pbar(loader):
         sample = call_compute(compute, batch)
         rtk.add(sample)
@@ -111,6 +114,7 @@ def gather_topk(compute, dataset, topk, k=None,
         for rank, imgnum in enumerate(imgnums.numpy()):
             needed_images[imgnum].append((unit, rank))
     needed_sample = FixedSubsetSampler(sorted(needed_images.keys()))
+    # import ipdb; ipdb.set_trace() 
     loader = make_loader(dataset, sampler=needed_sample, **kwargs)
     for batchnum, batch in enumerate(pbar(loader)):
         assert isinstance(batch, list)
@@ -187,7 +191,11 @@ def tally_quantile(compute, dataset, sample_size=None, batch_size=10,
     cached_state = load_cached_state(cachefile, args)
     if cached_state is not None:
         return runningstats.RunningQuantile(state=cached_state)
-    loader = make_loader(dataset, sample_size, batch_size, **kwargs)
+    if 'loader' in kwargs:
+        loader = kwargs['loader']
+    else:
+        loader = make_loader(dataset, sample_size, batch_size, **kwargs)
+    
     rq = runningstats.RunningQuantile()
     for batch in pbar(loader):
         sample = call_compute(compute, batch)
@@ -349,7 +357,10 @@ def tally_conditional_mean(compute, dataset,
     cached_state = load_cached_state(cachefile, args)
     if cached_state is not None:
         return runningstats.RunningConditionalVariance(state=cached_state)
-    loader = make_loader(dataset, sample_size, batch_size, **kwargs)
+    if 'loader' in kwargs:
+        loader = kwargs['loader']
+    else:
+        loader = make_loader(dataset, sample_size, batch_size, **kwargs)
     cv = runningstats.RunningConditionalVariance()
     for i, batch in enumerate(pbar(loader)):
         sample_set = call_compute(compute, batch)
@@ -667,8 +678,12 @@ def information_quality_ratio(arr):
 def call_compute(compute, batch):
     '''Utility for passing a dataloader batch to a compute function.'''
     if isinstance(batch, list):
+        # batch = batch[1]["image"]
+        # return compute(batch)
         return compute(*batch)
     elif isinstance(batch, dict):
+        # batch = batch["image"]
+        # return compute(batch)
         return compute(**batch)
     else:
         return compute(batch)
